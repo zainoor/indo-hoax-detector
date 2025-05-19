@@ -1,62 +1,110 @@
 import streamlit as st
 import joblib
-import PyPDF2
-import os
 import re
 from langdetect import detect
+from summa.summarizer import summarize
+import nltk
 
-# Basic cleaning (replace with your actual cleaner if available)
+nltk.download('punkt')
+
+# --- Helpers ---
 def clean_text(text):
     return text.lower()
 
-# Validation: ignore meaningless short input like "aaa"
 def is_valid_input(text):
     text = text.strip()
-    if len(text) < 20:  # Length check
-        return False
-    if not re.search(r'[a-zA-Z]{3,}', text):  # At least some real words
-        return False
-    return True
+    return len(text) >= 30 and re.search(r"[a-zA-Z]{3,}", text)
+
+# Capitalize summary sentences
+def fix_summary_capitalization(text):
+    return ". ".join(sentence.strip().capitalize() for sentence in text.split(".") if sentence).strip() + "."
 
 # Load model & vectorizer
-model = joblib.load(os.path.join("models", "hoax_model.pkl"))
-vectorizer = joblib.load(os.path.join("models", "vectorizer.pkl"))
+model = joblib.load("models/hoax_model.pkl")
+vectorizer = joblib.load("models/vectorizer.pkl")
 
-# Streamlit app layout
+# --- App layout ---
 st.set_page_config(page_title="Deteksi Berita Hoaks", layout="centered")
-st.title("Deteksi Berita Hoaks")
+st.markdown("<h1 style='text-align: center;'>Deteksi Berita Hoaks</h1>", unsafe_allow_html=True)
 
-input_type = st.radio("Choose input type:", ["Text", "PDF"])
-text = ""
+# Input
+st.markdown("##  Masukkan Artikel Berita 📝")
+text = st.text_area(
+    "",
+    height=200,
+    placeholder="Petunjuk:\n- Masukkan teks dari sumber online\n- Gunakan Bahasa Indonesia\n- Minimal 30 karakter"
+)
 
-if input_type == "Text":
-    text = st.text_area("Enter article text below:")
-elif input_type == "PDF":
-    uploaded_pdf = st.file_uploader("Upload a PDF file", type=["pdf"])
-    if uploaded_pdf is not None:
-        try:
-            pdf_reader = PyPDF2.PdfReader(uploaded_pdf)
-            for page in pdf_reader.pages:
-                text += page.extract_text() or ""
-        except Exception as e:
-            st.error(f"Error reading PDF: {e}")
-
-if st.button("Check"):
+# Predict
+if st.button("🔍 Periksa"):
     if not text.strip():
-        st.warning("Tolong masukkan Text atau PDF anda.")
-    elif len(text.strip()) < 30:
-        st.warning("Text anda terlalu pendek. Masukan minimum 30 Karakter.")
+        st.warning("⚠️ Tolong masukkan teks terlebih dahulu.")
+    elif not is_valid_input(text):
+        st.warning("⚠️ Teks terlalu pendek atau tidak valid. Masukkan minimal 30 karakter yang bermakna.")
     else:
         try:
             language = detect(text)
             if language != "id":
-                st.warning("Pastikan Arikel Anda menggunakan bahasa Indonesia")
+                st.warning("⚠️ Artikel harus menggunakan Bahasa Indonesia.")
             else:
-                cleaned_text = clean_text(text)
-                vectorized = vectorizer.transform([cleaned_text])
+                cleaned = clean_text(text)
+                vectorized = vectorizer.transform([cleaned])
                 prediction = model.predict(vectorized)[0]
-                result = "🚨 Hoax" if prediction == 1 else "✅ Valid"
-                st.success(f"Result: {result}")
+                proba = model.predict_proba(vectorized)[0]
+                confidence = proba[prediction]
 
-        except:
-            st.warning("Could not detect language. Please input a valid sentence.")
+                st.markdown("## Hasil Deteksi")
+                result_label = "🚨 **Hoax**" if prediction == 1 else "✅ **Valid**"
+                st.success(f"Hasil Deteksi: {result_label}")
+                st.markdown(f"**Tingkat Keyakinan:** {confidence:.2%}")
+
+                # Add confidence threshold warning
+                if confidence < 0.65:
+                    st.warning("⚠️ Hasil deteksi kurang meyakinkan. Harap verifikasi ulang informasi ini.")
+
+
+                # Top words
+                feature_names = vectorizer.get_feature_names_out()
+                coefs = model.coef_[0]
+                nonzero_idx = vectorized.nonzero()[1]
+                word_scores = {feature_names[i]: coefs[i] for i in nonzero_idx}
+                sorted_words = sorted(word_scores.items(), key=lambda x: abs(x[1]), reverse=True)
+                top_words = [word for word, _ in sorted_words[:5]]
+
+                st.markdown("### **Kata Paling Berpengaruh 🗝️**")
+                st.markdown(f"<span style='font-size: 20px'>{', '.join(top_words)}</span>", unsafe_allow_html=True)
+
+                # Summary
+                st.markdown("### Ringkasan Artikel:")
+                try:
+                    raw_summary = summarize(cleaned, words=80)
+                    summary_text = fix_summary_capitalization(raw_summary)
+                    if summary_text.strip():
+                        st.info(summary_text)
+                    else:
+                        st.info("Teks terlalu pendek untuk diringkas secara otomatis.")
+                except Exception as e:
+                    st.warning(f"Gagal membuat ringkasan: {e}")
+        except Exception as e:
+            st.warning(f"Terjadi kesalahan saat memproses teks: {e}")
+
+# --- Bottom info ---
+st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
+st.markdown("""---""")
+with st.expander("Tentang Aplikasi ℹ️", expanded=False):
+    st.markdown(
+        """
+        Aplikasi ini digunakan untuk mendeteksi apakah sebuah artikel mengandung informasi hoaks atau tidak berdasarkan teks yang dimasukkan.
+        """
+    )
+
+# --- Footer ---
+st.markdown(
+    """
+    <hr style='border-top: 1px solid #bbb;'>
+    <div style='text-align: center; font-size: 14px;'>
+        Dibuat oleh <b>Mohammad Ramadhan Zainoor</b> · © 2025 · <a href="https://github.com/zainoor" target="_blank">GitHub Repo</a>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
