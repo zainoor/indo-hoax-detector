@@ -59,7 +59,7 @@ if st.button("🔍 Periksa"):
                 st.markdown(f"**Tingkat Keyakinan:** {confidence:.2%}")
 
                 # Add confidence threshold warning
-                if confidence < 0.65:
+                if confidence < 0.60:
                     st.warning("⚠️ Hasil deteksi kurang meyakinkan. Harap verifikasi ulang informasi ini.")
 
 
@@ -88,7 +88,7 @@ if st.button("🔍 Periksa"):
         except Exception as e:
             st.warning(f"Terjadi kesalahan saat memproses teks: {e}")
 
-# --- Bottom info ---
+# --- Info ---
 st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
 st.markdown("""---""")
 with st.expander("Tentang Aplikasi ℹ️", expanded=False):
