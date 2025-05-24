@@ -5,7 +5,14 @@ from langdetect import detect
 from summa.summarizer import summarize
 import nltk
 
-nltk.download('punkt')
+# --- Streamlit Page Config ---
+st.set_page_config(page_title="Deteksi Berita Hoaks", layout="centered")
+
+# Ensure tokenizer is available
+try:
+    nltk.data.find("tokenizers/punkt")
+except LookupError:
+    nltk.download("punkt")
 
 # --- Helpers ---
 def clean_text(text):
@@ -15,36 +22,91 @@ def is_valid_input(text):
     text = text.strip()
     return len(text) >= 30 and re.search(r"[a-zA-Z]{3,}", text)
 
-# Capitalize summary sentences
 def fix_summary_capitalization(text):
     return ". ".join(sentence.strip().capitalize() for sentence in text.split(".") if sentence).strip() + "."
 
-# Load model & vectorizer
-model = joblib.load("models/hoax_model.pkl")
-vectorizer = joblib.load("models/vectorizer.pkl")
+# --- Load Model & Vectorizer ---
+@st.cache_resource
+def load_model():
+    return joblib.load("models/hoax_model.pkl")
 
-# --- App layout ---
-st.set_page_config(page_title="Deteksi Berita Hoaks", layout="centered")
-st.markdown("<h1 style='text-align: center;'>Deteksi Berita Hoaks</h1>", unsafe_allow_html=True)
+@st.cache_resource
+def load_vectorizer():
+    return joblib.load("models/vectorizer.pkl")
 
-# Input
-st.markdown("##  Masukkan Artikel Berita 📝")
+model = load_model()
+vectorizer = load_vectorizer()
+
+# --- UI Header ---
+st.markdown("<h1 style='text-align: center;'>Deteksi Berita Hoaks 🔎</h1>", unsafe_allow_html=True)
+
+
+# --- Input Section ---
+# --- Enhanced Input Section with Styling ---
+st.markdown("""
+    <style>
+    .custom-box {
+        background-color: #ffffff;
+        border: 2px solid #b52f2f;
+        padding: 25px;
+        border-radius: 15px;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1);
+        margin-top: 20px;
+        margin-bottom: 30px;
+    }
+    .stTextArea textarea {
+        background-color: #f9f9f9 !important;
+        border: 1px solid #ccc !important;
+        border-radius: 10px !important;
+        padding: 15px !important;
+        font-size: 16px !important;
+    }
+    .stButton > button {
+        background-color: #b52f2f;
+        color: white;
+        font-weight: bold;
+        font-size: 16px;
+        border-radius: 8px;
+        padding: 0.6em 1.5em;
+        margin-top: 10px;
+        border: none;
+        transition: all 0.3s ease;
+    }
+    .stButton > button:hover {
+        background-color: #ebebeb;
+        border: 2px solid #b52f2f;
+        transform: scale(1.04);
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<div class='custom-box'>
+    <h3>📰 Masukkan Artikel Berita</h3>
+""", unsafe_allow_html=True)
+
 text = st.text_area(
-    "",
+    label="",
     height=200,
-    placeholder="Petunjuk:\n- Masukkan teks dari sumber online\n- Gunakan Bahasa Indonesia\n- Minimal 30 karakter"
+    placeholder="Petunjuk:\nMasukkan teks dari sumber online\nGunakan Bahasa Indonesia\nMinimal 30 karakter",
+    label_visibility="collapsed"
 )
 
-# Predict
-if st.button("🔍 Periksa"):
-    if not text.strip():
+submit = st.button("🔍 Periksa")
+
+st.markdown("</div>", unsafe_allow_html=True)
+
+
+# --- Process Prediction ---
+if submit:
+    text = text.strip()
+    if not text:
         st.warning("⚠️ Tolong masukkan teks terlebih dahulu.")
     elif not is_valid_input(text):
         st.warning("⚠️ Teks terlalu pendek atau tidak valid. Masukkan minimal 30 karakter yang bermakna.")
     else:
         try:
-            language = detect(text)
-            if language != "id":
+            if detect(text) != "id":
                 st.warning("⚠️ Artikel harus menggunakan Bahasa Indonesia.")
             else:
                 cleaned = clean_text(text)
@@ -58,12 +120,10 @@ if st.button("🔍 Periksa"):
                 st.success(f"Hasil Deteksi: {result_label}")
                 st.markdown(f"**Tingkat Keyakinan:** {confidence:.2%}")
 
-                # Add confidence threshold warning
                 if confidence < 0.60:
                     st.warning("⚠️ Hasil deteksi kurang meyakinkan. Harap verifikasi ulang informasi ini.")
 
-
-                # Top words
+                # Most influential words
                 feature_names = vectorizer.get_feature_names_out()
                 coefs = model.coef_[0]
                 nonzero_idx = vectorized.nonzero()[1]
@@ -74,7 +134,7 @@ if st.button("🔍 Periksa"):
                 st.markdown("### **Kata Paling Berpengaruh 🗝️**")
                 st.markdown(f"<span style='font-size: 20px'>{', '.join(top_words)}</span>", unsafe_allow_html=True)
 
-                # Summary
+                # Article summary
                 st.markdown("### Ringkasan Artikel:")
                 try:
                     raw_summary = summarize(cleaned, words=80)
@@ -85,20 +145,19 @@ if st.button("🔍 Periksa"):
                         st.info("Teks terlalu pendek untuk diringkas secara otomatis.")
                 except Exception as e:
                     st.warning(f"Gagal membuat ringkasan: {e}")
+
         except Exception as e:
             st.warning(f"Terjadi kesalahan saat memproses teks: {e}")
 
-# --- Info ---
+# --- Footer & Info ---
 st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
 st.markdown("""---""")
-with st.expander("Tentang Aplikasi ℹ️", expanded=False):
-    st.markdown(
-        """
-        Aplikasi ini digunakan untuk mendeteksi apakah sebuah artikel mengandung informasi hoaks atau tidak berdasarkan teks yang dimasukkan.
-        """
-    )
 
-# --- Footer ---
+with st.expander("Tentang Aplikasi ℹ️", expanded=False):
+    st.markdown("""
+    Aplikasi ini digunakan untuk mendeteksi apakah sebuah artikel mengandung informasi hoaks atau tidak berdasarkan teks yang dimasukkan.
+    """)
+
 st.markdown(
     """
     <hr style='border-top: 1px solid #bbb;'>
